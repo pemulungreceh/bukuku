@@ -1,0 +1,413 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Save, ArrowLeft } from 'lucide-react';
+import { categories } from '../../data/mockData';
+import { useBooks } from '../../context/BookContext';
+import ImageUpload from '../../components/ImageUpload';
+import imageService from '../../services/imageService';
+
+interface ProductFormData {
+  title: string;
+  author: string;
+  price: number;
+  description: string;
+  category: string;
+  stock: number;
+  publishYear: number;
+  isbn: string;
+  pages: number;
+  language: string;
+  publisher: string;
+  weight: number;
+  dimensions: string;
+  featured: boolean;
+  bestseller: boolean;
+  new_arrival: boolean;
+}
+
+const SellerProductForm: React.FC = () => {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  const isEdit = Boolean(id);
+  const { books, addBook, updateBook } = useBooks();
+
+  const [formData, setFormData] = useState<ProductFormData>({
+    title: '',
+    author: '',
+    price: 0,
+    description: '',
+    category: '',
+    stock: 0,
+    publishYear: new Date().getFullYear(),
+    isbn: '',
+    pages: 0,
+    language: 'Bahasa Indonesia',
+    publisher: '',
+    weight: 0,
+    dimensions: '',
+    featured: false,
+    bestseller: false,
+    new_arrival: true,
+  });
+
+  const [coverImage, setCoverImage] = useState<File | null>(null);
+  const [previewImage, setPreviewImage] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (isEdit && id) {
+      const book = books.find(b => b.id === id);
+      if (book) {
+        setFormData({
+          title: book.title,
+          author: book.author,
+          price: book.price,
+          description: book.description,
+          category: book.category,
+          stock: book.stock,
+          publishYear: book.publishYear,
+          isbn: book.isbn,
+          pages: 0,
+          language: 'Bahasa Indonesia',
+          publisher: '',
+          weight: 0,
+          dimensions: '',
+          featured: book.featured || false,
+          bestseller: false,
+          new_arrival: false,
+        });
+        if (book.coverImage) {
+          setPreviewImage(book.coverImage);
+        }
+      }
+    }
+  }, [isEdit, id, books]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    
+    if (type === 'checkbox') {
+      const checked = (e.target as HTMLInputElement).checked;
+      setFormData(prev => ({ ...prev, [name]: checked }));
+    } else if (type === 'number') {
+      setFormData(prev => ({ ...prev, [name]: parseFloat(value) || 0 }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
+
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const handleImageSelect = (file: File) => {
+    setCoverImage(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPreviewImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleImageRemove = () => {
+    setCoverImage(null);
+    setPreviewImage('');
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.title.trim()) newErrors.title = 'Judul buku wajib diisi';
+    if (!formData.author.trim()) newErrors.author = 'Penulis wajib diisi';
+    if (formData.price <= 0) newErrors.price = 'Harga harus lebih dari 0';
+    if (!formData.description.trim()) newErrors.description = 'Deskripsi wajib diisi';
+    if (!formData.category) newErrors.category = 'Kategori wajib dipilih';
+    if (formData.stock < 0) newErrors.stock = 'Stok tidak boleh negatif';
+    if (!formData.isbn.trim()) newErrors.isbn = 'ISBN wajib diisi';
+    if (!isEdit && !coverImage && !previewImage) newErrors.cover_image = 'Cover buku wajib diupload';
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) return;
+
+    setIsLoading(true);
+    setIsUploading(true);
+
+    try {
+      let coverImageUrl = previewImage;
+      
+      if (coverImage) {
+        try {
+          coverImageUrl = await imageService.uploadImage(coverImage, 'books');
+        } catch (error) {
+          console.error('Image upload failed:', error);
+          coverImageUrl = 'https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=400';
+        }
+      }
+
+      const bookData = {
+        ...formData,
+        coverImage: coverImageUrl,
+        rating: 0,
+        reviews: 0,
+      };
+
+      let success = false;
+      if (isEdit && id) {
+        success = await updateBook(id, bookData);
+      } else {
+        success = await addBook(bookData);
+      }
+
+      if (success) {
+        navigate('/seller/products');
+      } else {
+        setErrors({ submit: 'Gagal menyimpan produk' });
+      }
+    } catch (error) {
+      setErrors({ submit: 'Terjadi kesalahan saat menyimpan produk' });
+    } finally {
+      setIsLoading(false);
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex items-center mb-8">
+        <button
+          onClick={() => navigate('/seller/products')}
+          className="mr-4 p-2 text-gray-600 hover:text-gray-800"
+        >
+          <ArrowLeft className="h-6 w-6" />
+        </button>
+        <h1 className="text-3xl font-bold text-gray-800">
+          {isEdit ? 'Edit Produk' : 'Tambah Produk Baru'}
+        </h1>
+      </div>
+
+      <form onSubmit={handleSubmit} className="max-w-4xl">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Cover Image Upload */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <h3 className="text-lg font-semibold mb-4">Cover Buku</h3>
+              
+              <ImageUpload
+                onImageSelect={handleImageSelect}
+                currentImage={previewImage}
+                onImageRemove={handleImageRemove}
+                maxSize={5}
+              />
+              
+              {errors.cover_image && (
+                <p className="text-red-600 text-sm mt-2">{errors.cover_image}</p>
+              )}
+              
+              {isUploading && (
+                <div className="mt-2 text-center">
+                  <div className="inline-flex items-center space-x-2 text-blue-600">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    <span className="text-sm">Mengupload gambar...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Form Fields */}
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Title */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Judul Buku *
+                  </label>
+                  <input
+                    type="text"
+                    name="title"
+                    value={formData.title}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Masukkan judul buku"
+                  />
+                  {errors.title && <p className="text-red-600 text-sm mt-1">{errors.title}</p>}
+                </div>
+
+                {/* Author */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Penulis *
+                  </label>
+                  <input
+                    type="text"
+                    name="author"
+                    value={formData.author}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Nama penulis"
+                  />
+                  {errors.author && <p className="text-red-600 text-sm mt-1">{errors.author}</p>}
+                </div>
+
+                {/* Publisher */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Penerbit
+                  </label>
+                  <input
+                    type="text"
+                    name="publisher"
+                    value={formData.publisher}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Nama penerbit"
+                  />
+                </div>
+
+                {/* Category */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Kategori *
+                  </label>
+                  <select
+                    name="category"
+                    value={formData.category}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="">Pilih Kategori</option>
+                    {categories.map(category => (
+                      <option key={category.id} value={category.name}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.category && <p className="text-red-600 text-sm mt-1">{errors.category}</p>}
+                </div>
+
+                {/* Price */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Harga (Rp) *
+                  </label>
+                  <input
+                    type="number"
+                    name="price"
+                    value={formData.price}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="0"
+                    min="0"
+                  />
+                  {errors.price && <p className="text-red-600 text-sm mt-1">{errors.price}</p>}
+                </div>
+
+                {/* Stock */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Stok
+                  </label>
+                  <input
+                    type="number"
+                    name="stock"
+                    value={formData.stock}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="0"
+                    min="0"
+                  />
+                  {errors.stock && <p className="text-red-600 text-sm mt-1">{errors.stock}</p>}
+                </div>
+
+                {/* ISBN */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    ISBN *
+                  </label>
+                  <input
+                    type="text"
+                    name="isbn"
+                    value={formData.isbn}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="978-xxx-xxx-xxx-x"
+                  />
+                  {errors.isbn && <p className="text-red-600 text-sm mt-1">{errors.isbn}</p>}
+                </div>
+
+                {/* Publish Year */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tahun Terbit
+                  </label>
+                  <input
+                    type="number"
+                    name="publishYear"
+                    value={formData.publishYear}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    min="1900"
+                    max={new Date().getFullYear()}
+                  />
+                </div>
+
+                {/* Description */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Deskripsi *
+                  </label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    rows={4}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Deskripsi buku..."
+                  />
+                  {errors.description && <p className="text-red-600 text-sm mt-1">{errors.description}</p>}
+                </div>
+              </div>
+
+              {errors.submit && (
+                <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600">{errors.submit}</p>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-4 mt-8">
+                <button
+                  type="button"
+                  onClick={() => navigate('/seller/products')}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading || isUploading}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2"
+                >
+                  <Save className="h-4 w-4" />
+                  <span>
+                    {isUploading ? 'Mengupload...' : isLoading ? 'Menyimpan...' : 'Simpan'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default SellerProductForm;
